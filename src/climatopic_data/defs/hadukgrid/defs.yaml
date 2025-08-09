@@ -1,0 +1,37 @@
+type: climatopic_data.components.hadukgrid.HadUKGridComponent
+
+attributes:
+  base_url: 'https://dap.ceda.ac.uk/thredds/catalog/badc/ukmo-hadobs/data/insitu/MOHC/HadOBS/HadUK-Grid/'
+  base_path: '{{ env.DAGSTER_LOCAL_ARTIFACT_STORAGE_DIR }}'
+  version: '{{ env.HADUKGRID_VERSION }}'
+  release: '{{ env.HADUKGRID_RELEASE }}'
+  resolution: 60km
+
+  variables:
+    - name: tas
+      description: Mean temperature
+      frequencies:
+        - mon
+        - seas
+        - ann
+    - name: tasmax
+      description: Maximum temperature
+      frequencies:
+        - day
+        - mon
+        - seas
+        - ann
+    - name: tasmin
+      description: Minimum temperature
+      frequencies:
+        - day
+        - mon
+        - seas
+        - ann
+    - name: rainfall
+      description: Total precipitation amount
+      frequencies:
+        - day
+        - mon
+        - seas
+        - ann
