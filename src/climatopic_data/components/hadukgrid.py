@@ -3,14 +3,14 @@ from dataclasses import dataclass
 import dagster as dg
 import xarray as xr
 
-from climatopic_data.lib.constants import CHUNKS_SPACE
-from climatopic_data.lib.io_managers.xarray_io_manager import (
+from climatopic_data.shared.xarray import CHUNKS_SPACE
+from climatopic_data.shared.io.xarray_io_manager import (
     XarrayIOManager,
 )
-from climatopic_data.lib.resolved import ResolvedUPath
-from climatopic_data.lib.resources.ceda_resource import CEDAHTTPResource
-from climatopic_data.lib.resources.dask_resource import DaskResource
-from climatopic_data.lib.utils import open_distributed_dataset
+from climatopic_data.shared.typing.resolved import ResolvedUPath
+from climatopic_data.shared.io.ceda_resource import CEDAHTTPResource
+from climatopic_data.shared.io.dask_resource import DaskResource
+from climatopic_data.shared.xarray import open_distributed_dataset
 
 
 class HadUKGridVariable(dg.Model):
