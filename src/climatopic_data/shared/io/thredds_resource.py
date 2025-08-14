@@ -12,11 +12,13 @@ from fnmatch import fnmatch
 from functools import cached_property
 from pathlib import Path
 from typing import Any, Final, Literal
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin, urlparse
 
 import dagster as dg
 import fsspec
 from fsspec.implementations.http import HTTPFileSystem
+
+__all__ = ['TDSResource', 'TDSWriteModes', 'TDSFileHandle']
 
 # TODO (mike): Support copying files to a flattened directory structure.
 #    Currently the source's directory structure is preserved, but we could add
@@ -67,11 +69,22 @@ def _backoff(retry: int, base: float = 1.0, jitter: float = 0.3) -> float:
 def _parse_glob_path(
     path: str,
 ) -> tuple[str, str]:
-    """Split a glob path into a base path and a glob pattern."""
-    if '*' not in path:
+    """Split a glob path into a base path and a glob pattern.
+
+    Only '*' is treated as a glob metacharacter. This avoids conflicts with '?' in URL query strings.
+    """
+    match = re.search(r'\*', path)
+    if not match:
         return path, ''
-    base, pattern = re.split(pattern=r'(?=\*)', string=path, maxsplit=1)
-    return base, pattern
+    idx = match.start()
+    return path[:idx], path[idx:]
+
+
+def _expand_target_path(source: str, target: str) -> Path:
+    """Return the target path expanded to mirror the server path's structure."""
+    parsed = urlparse(source)
+    relative_url_path = unquote(parsed.path.lstrip('/'))
+    return Path(target) / relative_url_path
 
 
 @dataclass(frozen=True)
@@ -120,39 +133,61 @@ class TDSResource(dg.ConfigurableResource):
         """
         url = self.resolve_path(path)
         base, pattern = _parse_glob_path(url)
-        stack = [(base, 0)]
 
-        if '**' not in pattern:
-            max_depth = 1
+        # If no wildcard and the base refers to a file, yield it directly.
+        if not pattern:
+            try:
+                info = self.fs.info(base)
+                if info.get('type') == 'file':
+                    yield base
+                    return
+            except Exception:
+                # Fall back to listing if info isn't supported or fails.
+                pass
+
+        stack: list[tuple[str, int]] = [(base, 0)]
+        is_recursive = '**' in pattern
 
         while stack:
             current_path, depth = stack.pop()
 
-            if max_depth and depth > max_depth:
+            if max_depth is not None and depth > max_depth:
                 continue
 
             for item in self.fs.ls(current_path, detail=True):
-                path = item['name']
-                if item.get('type') == 'file':
-                    # Remove root (``http://``) for matching with ``fnmatch``.
-                    relative_path = path[len(self.server_url) :].lstrip('/')
-                    if fnmatch(relative_path, pattern):
-                        yield path
-                elif item.get('type') == 'directory':
-                    stack.append((path, depth + 1))
+                item_path = item['name']
+                item_type = item.get('type')
 
-    def list_files(self, path: str) -> list[str]:
+                if item_type == 'file':
+                    if not pattern:
+                        # list files under base only (do not recurse)
+                        if depth == 0:
+                            yield item_path
+                    else:
+                        item_path_relative = item_path[len(base) :].lstrip('/')
+                        if fnmatch(item_path_relative, pattern):
+                            yield item_path
+
+                elif (
+                    item_type == 'directory'
+                    and is_recursive
+                    and (max_depth is None or depth < max_depth)
+                ):
+                    stack.append((item_path, depth + 1))
+
+    def list_files(self, path: str, max_depth: int | None = None) -> list[str]:
         """List all file below a given path.
 
         The path will be resolved to an absolute URL of the form: ``{server_url}/{base_path}/{path}``
 
         Args:
-             path (str): Path to search from. Can contain shell-style wildcards.
+            path (str): Path to search from. Can contain shell-style wildcards.
+            max_depth (int | None): Maximum directory depth to search. Only applies if the path contains ``**``
 
         Returns:
             list[str]: Fully qualified remote file path.
         """
-        return list(self.iter_files(path=path))
+        return list(self.iter_files(path=path, max_depth=max_depth))
 
     def copy_file(
         self,
@@ -175,7 +210,7 @@ class TDSResource(dg.ConfigurableResource):
         """
         source = self.resolve_path(source)
         # Keep files organized like the source structure
-        _target = Path(target) / Path(source[len(self.server_url) :])
+        _target = _expand_target_path(source, target)
 
         if _target.exists() and TDSWriteMode(mode) == TDSWriteMode.CREATE_SAFE:
             return TDSFileHandle(
@@ -201,6 +236,7 @@ class TDSResource(dg.ConfigurableResource):
         self,
         source: str | list[str],
         target: str,
+        *,
         mode: TDSWriteModes = TDSWriteMode.CREATE_SAFE.value,
         max_workers: int = MAX_WORKERS,
         batch_size: int = BATCH_SIZE,
