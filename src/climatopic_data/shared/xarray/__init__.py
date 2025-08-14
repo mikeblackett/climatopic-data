@@ -39,6 +39,7 @@ def open_distributed_dataset(
     *,
     concat_dim: str = 'time',
     chunks: Literal['auto'] | Chunks = None,
+    parallel: bool = True,
     backend_kwargs: dict[str, Any] | None = None,
 ) -> xr.Dataset:
     """Open multiple files as a single dataset.
@@ -59,6 +60,10 @@ def open_distributed_dataset(
     chunks : Chunks, optional
         Per-file chunk size, by default `None`.
         The default is to load entire input files into memory at once.
+    parallel : bool, optional
+        Whether to parallelize the opening of the files, by default True.
+    backend_kwargs
+        Options to pass to the backend engine.
     """
     return xr.open_mfdataset(
         paths=paths,  # type: ignore
@@ -70,6 +75,6 @@ def open_distributed_dataset(
         coords='minimal',
         data_vars='minimal',
         engine='h5netcdf',
-        parallel=True,
+        parallel=parallel,
         backend_kwargs=backend_kwargs,
     )
