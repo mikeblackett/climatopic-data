@@ -1,3 +1,5 @@
+"""IOManager for xarray datasets."""
+
 from enum import StrEnum
 
 import xarray as xr
@@ -5,6 +7,7 @@ import dagster as dg
 from upath import UPath
 
 from climatopic_data.shared.typing import Chunks
+from climatopic_data.shared.typing.resolved import ResolvedUPath
 
 
 class ZarrWriteMode(StrEnum):
@@ -28,7 +31,7 @@ class XarrayIOManager(dg.UPathIOManager):
     def dump_to_path(
         self,
         context: dg.OutputContext,
-        obj: xr.Dataset | xr.DataArray,
+        obj: xr.DataArray | xr.Dataset | xr.DataTree,
         path: UPath,
     ) -> None:
         context.log.info(
@@ -69,3 +72,16 @@ class XarrayIOManager(dg.UPathIOManager):
             decode_timedelta=False,
             engine='zarr',
         )
+
+    @staticmethod
+    def with_required_resource_keys(
+        base_path: ResolvedUPath,
+        required_resource_keys: set[str],
+    ) -> dg.IOManagerDefinition:
+        """Factory for an XarrayIOManager with injected required_resource_keys."""
+
+        @dg.io_manager(required_resource_keys=required_resource_keys)
+        def _xarray_io_manager() -> XarrayIOManager:
+            return XarrayIOManager(base_path=base_path)
+
+        return _xarray_io_manager()
